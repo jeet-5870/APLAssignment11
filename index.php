@@ -332,7 +332,7 @@ $isLoggedIn = isset($_SESSION['user_id']);
 </main>
 
 <footer class="bg-blue-950 text-white py-12 text-center mt-20">
-    <p class="opacity-70">&copy; 2026 International Conference on Advanced Systems &mdash; 24U022009 Jeet Narayan</p>
+    <p class="opacity-70">&copy; Made by &mdash; 24U022009, Jeet Narayan</p>
 </footer>
 
 <script>
