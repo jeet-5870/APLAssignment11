@@ -21,11 +21,18 @@ function getDB($db_file) {
         content TEXT NOT NULL
     )");
 
+    // Updated Users table for Assignment 12
     $db->exec("CREATE TABLE IF NOT EXISTS Users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL UNIQUE,
         email TEXT NOT NULL UNIQUE,
         password TEXT NOT NULL,
+        full_name TEXT,
+        contact_number TEXT,
+        education TEXT,
+        role TEXT,
+        state TEXT,
+        city TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )");
 
@@ -124,12 +131,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // UPDATE ACCOUNT DETAILS
+    if ($action === 'update_profile' && isset($_SESSION['user_id'])) {
+        try {
+            $stmt = $db->prepare("UPDATE Users SET full_name=?, contact_number=?, education=?, role=?, state=?, city=? WHERE id=?");
+            $stmt->execute([
+                $_POST['full_name'], $_POST['contact_number'], $_POST['education'], 
+                $_POST['role'], $_POST['state'], $_POST['city'], $_SESSION['user_id']
+            ]);
+            $message = "Details updated successfully!";
+            $messageType = "success";
+        } catch (PDOException $e) {
+            $message = "Failed to update profile.";
+            $messageType = "error";
+        }
+    }
+
+    // PASSWORD UPDATE
+    if ($action === 'update_password' && isset($_SESSION['user_id'])) {
+        $new_pw = $_POST['new_password'];
+        if (strlen($new_pw) < 6) {
+            $message = "Password must be at least 6 characters.";
+            $messageType = "error";
+        } else {
+            $hash = password_hash($new_pw, PASSWORD_DEFAULT);
+            $stmt = $db->prepare("UPDATE Users SET password=? WHERE id=?");
+            $stmt->execute([$hash, $_SESSION['user_id']]);
+            $message = "Password updated successfully!";
+            $messageType = "success";
+        }
+    }
+
     // LOGOUT
     if ($action === 'logout') {
         session_destroy();
         header('Location: ' . $_SERVER['PHP_SELF']);
         exit;
     }
+}
+
+// Fetch user data for My Account
+$userData = null;
+if (isset($_SESSION['user_id'])) {
+    $stmt = $db->prepare("SELECT * FROM Users WHERE id = ?");
+    $stmt->execute([$_SESSION['user_id']]);
+    $userData = $stmt->fetch(PDO::FETCH_ASSOC);
 }
 
 // Fetch sections
@@ -153,19 +199,16 @@ $isLoggedIn = isset($_SESSION['user_id']);
 </head>
 <body class="bg-slate-50 text-gray-900 leading-relaxed">
 
-<!-- ===== NAVBAR ===== -->
 <nav class="fixed top-0 w-full bg-blue-900 text-white z-50 shadow-xl">
     <div class="max-w-7xl mx-auto px-4 h-16 flex justify-between items-center">
         <span class="font-black text-xl tracking-tighter">ICA2S 2026</span>
 
-        <!-- Mobile menu button -->
         <button onclick="document.getElementById('m-menu').classList.toggle('hidden')" class="md:hidden">
             <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path>
             </svg>
         </button>
 
-        <!-- Desktop nav links -->
         <div class="hidden md:flex items-center space-x-2 lg:space-x-4 text-[11px] lg:text-[13px] font-bold uppercase">
             <?php foreach ($sections as $s): ?>
                 <a href="#<?= str_replace(' ', '-', $s['section_name']) ?>" class="hover:text-yellow-400 transition">
@@ -173,9 +216,9 @@ $isLoggedIn = isset($_SESSION['user_id']);
                 </a>
             <?php endforeach; ?>
 
-            <!-- Auth button -->
             <?php if ($isLoggedIn): ?>
                 <div class="flex items-center space-x-2 ml-4 border-l border-blue-700 pl-4">
+                    <a href="#my-account" class="text-yellow-400 hover:text-white transition text-[11px] font-bold">My Account</a>
                     <span class="text-yellow-300 text-[11px]">👤 <?= htmlspecialchars($_SESSION['username']) ?></span>
                     <form method="POST" class="inline">
                         <input type="hidden" name="action" value="logout">
@@ -192,7 +235,6 @@ $isLoggedIn = isset($_SESSION['user_id']);
         </div>
     </div>
 
-    <!-- Mobile dropdown menu -->
     <div id="m-menu" class="hidden md:hidden bg-blue-800 flex flex-col p-4 space-y-2 uppercase text-xs font-bold">
         <?php foreach ($sections as $s): ?>
             <a href="#<?= str_replace(' ', '-', $s['section_name']) ?>" onclick="document.getElementById('m-menu').classList.add('hidden')">
@@ -201,6 +243,7 @@ $isLoggedIn = isset($_SESSION['user_id']);
         <?php endforeach; ?>
         <hr class="border-blue-600">
         <?php if ($isLoggedIn): ?>
+            <a href="#my-account" class="text-yellow-300" onclick="document.getElementById('m-menu').classList.add('hidden')">My Account</a>
             <span class="text-yellow-300">👤 <?= htmlspecialchars($_SESSION['username']) ?></span>
             <form method="POST">
                 <input type="hidden" name="action" value="logout">
@@ -212,92 +255,35 @@ $isLoggedIn = isset($_SESSION['user_id']);
     </div>
 </nav>
 
-<!-- ===== AUTH MODAL ===== -->
 <?php if (!$isLoggedIn): ?>
 <div id="auth-modal" class="fixed inset-0 z-[100] hidden modal-overlay bg-black/60 flex items-center justify-center p-4">
     <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden relative">
-        <!-- Close button -->
         <button onclick="closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-700 text-2xl font-bold z-10">&times;</button>
-
-        <!-- Header -->
         <div class="bg-blue-900 text-white px-8 pt-8 pb-4">
             <h2 class="text-2xl font-black">ICA2S 2026 Account</h2>
             <p class="text-blue-300 text-sm mt-1">Access exclusive conference features</p>
         </div>
-
-        <!-- Tabs -->
         <div class="flex border-b border-gray-200 bg-gray-50">
             <button id="tab-login" onclick="switchTab('login')" class="tab-btn active flex-1 py-3 text-sm font-bold uppercase tracking-wide">Login</button>
             <button id="tab-register" onclick="switchTab('register')" class="tab-btn flex-1 py-3 text-sm font-bold uppercase tracking-wide text-gray-500">Register</button>
         </div>
-
-        <!-- Flash message -->
-        <?php if ($message): ?>
-            <div class="mx-6 mt-4 px-4 py-3 rounded-lg text-sm font-medium
-                <?= $messageType === 'success' ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-red-100 text-red-800 border border-red-300' ?>">
-                <?= htmlspecialchars($message) ?>
-            </div>
-        <?php endif; ?>
-
         <div class="p-8">
-            <!-- LOGIN FORM -->
             <div id="form-login" class="tab-content">
                 <form method="POST" class="space-y-4">
                     <input type="hidden" name="action" value="login">
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Email Address</label>
-                        <input type="email" name="email" placeholder="you@example.com" required
-                            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            value="<?= htmlspecialchars($_POST['email'] ?? '') ?>">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Password</label>
-                        <input type="password" name="password" placeholder="••••••••" required
-                            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    </div>
-                    <button type="submit"
-                        class="w-full bg-blue-900 hover:bg-blue-800 text-white font-bold py-2.5 rounded-lg transition text-sm tracking-wide uppercase">
-                        Login
-                    </button>
-                    <p class="text-center text-xs text-gray-500">
-                        No account? <button type="button" onclick="switchTab('register')" class="text-blue-700 font-semibold hover:underline">Register here</button>
-                    </p>
+                    <input type="email" name="email" placeholder="you@example.com" required class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <input type="password" name="password" placeholder="••••••••" required class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button type="submit" class="w-full bg-blue-900 hover:bg-blue-800 text-white font-bold py-2.5 rounded-lg transition text-sm tracking-wide uppercase">Login</button>
                 </form>
             </div>
-
-            <!-- REGISTER FORM -->
             <div id="form-register" class="tab-content hidden">
                 <form method="POST" class="space-y-4">
                     <input type="hidden" name="action" value="register">
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Username</label>
-                        <input type="text" name="username" placeholder="johndoe" required
-                            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            value="<?= htmlspecialchars($_POST['username'] ?? '') ?>">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Email Address</label>
-                        <input type="email" name="email" placeholder="you@example.com" required
-                            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            value="<?= htmlspecialchars($_POST['email'] ?? '') ?>">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Password <span class="text-gray-400 font-normal">(min 6 chars)</span></label>
-                        <input type="password" name="password" placeholder="••••••••" required
-                            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Confirm Password</label>
-                        <input type="password" name="confirm_password" placeholder="••••••••" required
-                            class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    </div>
-                    <button type="submit"
-                        class="w-full bg-yellow-400 hover:bg-yellow-300 text-blue-900 font-bold py-2.5 rounded-lg transition text-sm tracking-wide uppercase">
-                        Create Account
-                    </button>
-                    <p class="text-center text-xs text-gray-500">
-                        Already registered? <button type="button" onclick="switchTab('login')" class="text-blue-700 font-semibold hover:underline">Login here</button>
-                    </p>
+                    <input type="text" name="username" placeholder="johndoe" required class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm">
+                    <input type="email" name="email" placeholder="you@example.com" required class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm">
+                    <input type="password" name="password" placeholder="•••••••• (min 6)" required class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm">
+                    <input type="password" name="confirm_password" placeholder="Confirm Password" required class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm">
+                    <button type="submit" class="w-full bg-yellow-400 hover:bg-yellow-300 text-blue-900 font-bold py-2.5 rounded-lg transition text-sm tracking-wide uppercase">Create Account</button>
                 </form>
             </div>
         </div>
@@ -305,8 +291,7 @@ $isLoggedIn = isset($_SESSION['user_id']);
 </div>
 <?php endif; ?>
 
-<!-- ===== SUCCESS BANNER (logged-in) ===== -->
-<?php if ($isLoggedIn && $message): ?>
+<?php if ($message): ?>
 <div id="flash-banner" class="fixed top-16 left-0 right-0 z-40 flex justify-center pt-3 px-4">
     <div class="bg-green-600 text-white px-6 py-3 rounded-xl shadow-lg text-sm font-semibold flex items-center gap-3">
         ✅ <?= htmlspecialchars($message) ?>
@@ -315,8 +300,60 @@ $isLoggedIn = isset($_SESSION['user_id']);
 </div>
 <?php endif; ?>
 
-<!-- ===== MAIN CONTENT ===== -->
 <main class="pt-20 px-6 max-w-5xl mx-auto">
+
+    <?php if ($isLoggedIn): ?>
+    <section id="my-account" class="py-16 border-b border-gray-200">
+        <h2 class="text-4xl font-extrabold text-blue-900 mb-8 border-l-8 border-yellow-500 pl-6 uppercase">My Account</h2>
+        <div class="grid md:grid-cols-2 gap-8">
+            <div class="bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
+                <h3 class="text-xl font-bold mb-4 text-blue-700">User Details</h3>
+                <form method="POST" class="space-y-3">
+                    <input type="hidden" name="action" value="update_profile">
+                    <div>
+                        <label class="text-[10px] font-bold text-gray-400 uppercase">Full Name</label>
+                        <input type="text" name="full_name" value="<?= htmlspecialchars($userData['full_name'] ?? '') ?>" class="w-full border rounded-lg px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-gray-400 uppercase">Contact Number</label>
+                        <input type="text" name="contact_number" value="<?= htmlspecialchars($userData['contact_number'] ?? '') ?>" class="w-full border rounded-lg px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-gray-400 uppercase">Education</label>
+                        <input type="text" name="education" value="<?= htmlspecialchars($userData['education'] ?? '') ?>" class="w-full border rounded-lg px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-gray-400 uppercase">Role</label>
+                        <select name="role" class="w-full border rounded-lg px-3 py-2 text-sm">
+                            <option value="Student" <?= ($userData['role'] ?? '') == 'Student' ? 'selected' : '' ?>>Student</option>
+                            <option value="Faculty" <?= ($userData['role'] ?? '') == 'Faculty' ? 'selected' : '' ?>>Faculty</option>
+                        </select>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-400 uppercase">State</label>
+                            <input type="text" name="state" value="<?= htmlspecialchars($userData['state'] ?? '') ?>" class="w-full border rounded-lg px-3 py-2 text-sm">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-gray-400 uppercase">City</label>
+                            <input type="text" name="city" value="<?= htmlspecialchars($userData['city'] ?? '') ?>" class="w-full border rounded-lg px-3 py-2 text-sm">
+                        </div>
+                    </div>
+                    <button type="submit" class="w-full bg-blue-900 text-white font-bold py-2 rounded-lg mt-2 uppercase text-xs">Update Details</button>
+                </form>
+            </div>
+            <div class="bg-white p-8 rounded-2xl shadow-xl border border-gray-100 h-fit">
+                <h3 class="text-xl font-bold mb-4 text-blue-700">Update Password</h3>
+                <form method="POST" class="space-y-4">
+                    <input type="hidden" name="action" value="update_password">
+                    <input type="password" name="new_password" placeholder="New Password" required class="w-full border rounded-lg px-4 py-2 text-sm">
+                    <button type="submit" class="w-full bg-yellow-500 text-blue-900 font-bold py-2 rounded-lg uppercase text-xs">Change Password</button>
+                </form>
+            </div>
+        </div>
+    </section>
+    <?php endif; ?>
+
     <?php foreach ($sections as $s):
         $id = str_replace(' ', '-', $s['section_name']);
     ?>
